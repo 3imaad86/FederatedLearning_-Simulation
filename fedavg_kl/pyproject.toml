@@ -1,0 +1,82 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "fedavg_kl"
+version = "1.0.0"
+description = "FedAvg+KL : agregation FedAvg + distillation KL via proxy (KMeans-DRE inspire de Liu et al. 2025)"
+license = "Apache-2.0"
+dependencies = [
+    "fl_common>=1.0.0",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["fedavg_kl"]
+
+[tool.flwr.app]
+publisher = "local"
+
+[tool.flwr.app.components]
+serverapp = "fedavg_kl.server_app:app"
+clientapp = "fedavg_kl.client_app:app"
+
+[tool.flwr.app.config]
+num-server-rounds = 10
+local-epochs = 2
+learning-rate = 0.01
+batch-size = 32
+num-clients = 10
+partitioning = "noniid"
+dirichlet-alpha = 0.3
+data-heterogeneity = 0
+epochs-heterogeneity = 0
+early-stopping-patience = 0
+early-stopping-min-delta = 0.001
+comm-size-ratio = 1.0
+compression-quantization-bits = 32
+compression-sparsity-ratio = 0.0
+sim-model-mb = 0.0
+energy-compute-tier0-j = 0.020
+energy-compute-tier1-j = 0.010
+energy-compute-tier2-j = 0.005
+energy-comm-wan-tier0-w = 0.2
+energy-comm-wan-tier1-w = 2.0
+energy-comm-wan-tier2-w = 0.8
+energy-comm-lan-tier0-w = 0.4
+energy-comm-lan-tier1-w = 0.5
+energy-comm-lan-tier2-w = 0.3
+energy-edge-cloud-power-w = 5.0
+# Momentum SGD, aligne sur le reste du repo (0.0).
+momentum = 0.0
+seed = -1
+data-seed = 42
+fraction-train = 1.0
+model-name = "net"
+
+# === Parametres FedAvg+KL configurables ===
+# Taille du proxy dataset (subset hold-out du test CIFAR-10). 2000 est un
+# compromis : assez de samples pour distillation utile, pas trop pour eviter
+# de surcharger la comm.
+fedavgkl-proxy-size = 2000
+# Indices proxy echantillonnes par round (sous-ensemble aleatoire I_r par round).
+# 0 = tout le proxy chaque round.
+fedavgkl-proxy-per-round = 500
+# Poids de la distillation dans la loss combinee :
+#   loss = (1 - lambda) * CE_local + lambda * KL_distill * T^2
+# 0 = pas de distillation (= FedAvg pur), 0.5 = equilibre, 1 = distillation seule.
+fedavgkl-distill-lambda = 0.5
+# Temperature de softmax pour la distillation. Plus haut = distribution plus
+# lisse, plus de signal sur les "soft" classes (Hinton et al. 2015).
+fedavgkl-distill-temperature = 4.0
+# Exclut les images proxy de l'evaluation serveur centrale (evite la fuite eval).
+fedavgkl-eval-exclude-proxy = 1
+# KMeans-DRE : valeurs fixees en dur (1 centroide par classe, seuil T^ID
+# au 90e percentile).
+
+
+# [tool.flwr.federations]
+# default = "local-sim"
+
+# [tool.flwr.federations.local-sim]
+# options.num-supernodes = 10

@@ -1,0 +1,112 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "fedeve"
+version = "1.0.0"
+description = "FedEve (Shen et al. 2025) : filtre de Kalman serveur pour compenser period drift et client drift en cross-device FL."
+license = "Apache-2.0"
+dependencies = [
+    "fl_common>=1.0.0",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["fedeve"]
+
+[tool.flwr.app]
+publisher = "local"
+
+[tool.flwr.app.components]
+serverapp = "fedeve.server_app:app"
+clientapp = "fedeve.client_app:app"
+
+[tool.flwr.app.config]
+num-server-rounds = 10
+# Paper Sec 3.1 : E = 1 epoch / round. Multi-epoch supporte mais s'eloigne
+# du regime theorique du papier (assumption 2.2 normal noise + lemma 2.4).
+local-epochs = 1
+# Paper Sec 3.1 : eta_l = 0.01 pour FEMNIST/CIFAR-100 (SGD optimizer).
+learning-rate = 0.01
+batch-size = 32
+num-clients = 10
+partitioning = "noniid"
+dirichlet-alpha = 0.3
+data-heterogeneity = 0
+epochs-heterogeneity = 0
+early-stopping-patience = 0
+early-stopping-min-delta = 0.001
+# FedEve ne simule pas les stragglers (cf. client_app.py). La theorie du
+# filtre de Kalman suppose la participation totale des clients selectionnes
+# (assumption 2.3 : les drifts Q_t, R_t sont independants de w_0).
+comm-size-ratio = 1.0
+compression-quantization-bits = 32
+compression-sparsity-ratio = 0.0
+sim-model-mb = 0.0
+energy-compute-tier0-j = 0.020
+energy-compute-tier1-j = 0.010
+energy-compute-tier2-j = 0.005
+energy-comm-wan-tier0-w = 0.2
+energy-comm-wan-tier1-w = 2.0
+energy-comm-wan-tier2-w = 0.8
+energy-comm-lan-tier0-w = 0.4
+energy-comm-lan-tier1-w = 0.5
+energy-comm-lan-tier2-w = 0.3
+energy-edge-cloud-power-w = 5.0
+# Momentum SGD aligne sur 0.0 (theorie-correcte vanilla SGD). FedEve gere
+# son propre momentum cote SERVEUR via le filtre de Kalman -- pas besoin
+# d'ajouter un momentum local cote client (cela melangerait les semantiques).
+momentum = 0.0
+# Seed reproducibilite. -1 = pas de seeding (defaut). >=0 = runs identiques.
+seed = -1
+# Seed des partitions donnees, separe du seed runtime.
+data-seed = 42
+# FedEve : learning rate SERVEUR (eta_g dans le papier, Eq 15e).
+# Paper experiments : eta_g = 1.0 (Sec 3.1, "we set the global learning
+# rate eta_g = 1 for all experiments"). Aucun autre hyperparametre :
+# G_kal est appris adaptativement depuis les variances observees.
+fedeve-server-lr = 1.0
+
+# CRITIQUE pour FedEve : fraction de clients echantillonnes par round.
+# Le papier (Sec 1, par. 4) cible explicitement le "cross-device setting
+# with partial client participation" -- c'est de la participation partielle
+# que vient le PERIOD DRIFT que FedEve compense.
+#
+# Valeur 1.0 (full participation, defaut) :
+#   - Aucun period drift par construction (sum_k p_k F_k = f exactement)
+#   - FedEve se comporte comme un FedAvg ralenti par son momentum (G_kal < 1)
+#   - => FedEve PERD contre FedAvg dans ce regime, c'est attendu.
+#
+# Valeur < 1.0 (partial participation, regime cross-device du papier) :
+#   - Period drift > 0 (sous-ensemble != distribution globale)
+#   - FedEve detecte sigma2_Q et G_kal s'ajuste round par round
+#   - => FedEve gagne contre FedAvg (cf. Tables 1-3 du papier).
+#
+# Recommandation : pour exercer FedEve correctement, mettre 0.3-0.5.
+# Le papier sample 10 clients sur 50k-671k (ratio ~ 1e-5). Avec seulement
+# 10 partitions en simulation, 0.3-0.5 (=> 3-5 clients/round) suffit.
+fraction-train = 1.0
+# CORRECTIF audit V10 : modele actif (Net ou BigNet).
+model-name = "net"
+
+
+#######################################################################
+# CONFIGURATION MIGRATION NOTICE:
+#
+# What was previously called "federation config" for SuperLink
+# connections in pyproject.toml has been renamed and moved.
+#
+# These settings are now **SuperLink connection configuration**
+# and are defined in the Flower configuration file.
+#
+# The entries below are commented out intentionally and are kept
+# only as a migration reference.
+#
+# Docs: https://flower.ai/docs/framework/ref-flower-configuration.html
+#######################################################################
+
+# [tool.flwr.federations]
+# default = "local-sim"
+
+# [tool.flwr.federations.local-sim]
+# options.num-supernodes = 10

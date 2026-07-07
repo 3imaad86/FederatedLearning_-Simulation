@@ -1,0 +1,126 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "hfl-befl"
+version = "1.0.0"
+description = "HFL simple avec batterie partielle des clients IoT"
+license = "Apache-2.0"
+dependencies = [
+    "fl_common>=1.0.0",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["hfl_befl"]
+
+[tool.flwr.app]
+publisher = "local"
+
+[tool.flwr.app.components]
+serverapp = "hfl_befl.server_app:app"
+clientapp = "hfl_befl.client_app:app"
+
+[tool.flwr.app.config]
+num-server-rounds = 10
+local-epochs = 2
+learning-rate = 0.01
+batch-size = 32
+num-clients = 10
+partitioning = "noniid"
+dirichlet-alpha = 0.3
+data-heterogeneity = 0
+# IMPORTANT pour HFL-BEFL : avec epochs-heterogeneity=0 tous les clients sont
+# tier=1 (medium), donc `befl-unlimited-tier=2` ne s'applique a personne.
+# Forcer 1 ici pour que les tiers weak/medium/strong soient distribues comme
+# pid % 3 et que le mode "strong = batterie illimitee" fonctionne.
+epochs-heterogeneity = 1
+early-stopping-patience = 0
+early-stopping-min-delta = 0.001
+straggler-sim = 0
+round-deadline-s = 0.0
+# FedStrag server-side : si active, les clients qui depassent la deadline
+# renvoient quand meme leur update avec une staleness. Le serveur reduit leur
+# poids au lieu de les dropper.
+fedstrag-enabled = 0
+fedstrag-alpha = 1.0
+fedstrag-min-weight = 0.05
+fedstrag-max-staleness = 0
+# Ratio manuel applique aux liens device-edge. La quant/sparse reduit
+# seulement l'uplink client; edge-cloud a son propre hfl-edge-cloud-ratio.
+comm-size-ratio = 1.0
+compression-quantization-bits = 32
+# CORRECTIF audit V27 : sparsification DESACTIVEE car elle degrade fortement
+# l'accuracy HFL-BEFL (top-k masking detruit le signal critique). NE PAS
+# remettre une valeur > 0 sans verification empirique sur ton workload.
+# Seule la quantification (via compression-quantization-bits) est conseillee.
+compression-sparsity-ratio = 0.0
+sim-model-mb = 0.0
+energy-compute-tier0-j = 0.020
+energy-compute-tier1-j = 0.010
+energy-compute-tier2-j = 0.005
+energy-comm-wan-tier0-w = 0.2
+energy-comm-wan-tier1-w = 2.0
+energy-comm-wan-tier2-w = 0.8
+energy-comm-lan-tier0-w = 0.4
+energy-comm-lan-tier1-w = 0.5
+energy-comm-lan-tier2-w = 0.3
+energy-edge-cloud-power-w = 5.0
+momentum = 0.0
+seed = -1
+# Seed des partitions donnees, separe du seed runtime.
+data-seed = 42
+# Fraction de clients echantillonnes par round (McMahan 2017, parametre C).
+# 1.0 = full participation (defaut HFL-BEFL ; tous les clients constraints
+# participent puis BEFL Lyapunov drop ceux qui sont en dette energetique).
+# < 1.0 = sampling cote Flower EN PLUS du filtrage BEFL -> participation
+# effective = fraction_train * (1 - taux_BEFL_drop). A reserver aux gros
+# deploiements (>= 50 clients) ; sous 10 clients ca rend BEFL bruite.
+fraction-train = 1.0
+# CORRECTIF audit V10 : modele actif (Net ou BigNet).
+model-name = "net"
+
+# HFL
+# Les clients sont clusters par performance dans client_app.py:
+# tier 0 weak -> edge 0, tier 1 medium -> edge 1, tier 2 strong -> edge 2.
+# Si hfl-rl-edge-assignment=1, le cloud apprend l'affectation client -> edge.
+hfl-num-edges = 3
+# Nombre de rounds client->edge avant une synchronisation edge->cloud.
+# 1 = ancien comportement proche de FedAvg groupe; >1 = HFL avec modeles
+# edge persistants et specialisation temporaire par edge.
+hfl-local-steps = 3
+hfl-rl-edge-assignment = 0
+hfl-rl-epsilon = 0.2
+hfl-rl-lr = 0.01
+hfl-edge-cloud-ratio = 1.0
+
+# Client -> edge: profils LAN dans client_app.py CLIENT_EDGE_PROFILES:
+#   tier 0 : 20 Mbps / 50ms RTT  (WiFi local lent / vieux AP)
+#   tier 1 : 100 Mbps / 20ms RTT (WiFi local moderne)
+#   tier 2 : 500 Mbps / 10ms RTT (Ethernet gigabit / WiFi 6 court-portee)
+# Puissance radio LAN dans fl_common/energy.py POWER_COMM_LAN_W :
+#   tier 0 : 0.4 W (WiFi 2.4GHz vieux)
+#   tier 1 : 0.5 W (WiFi 5GHz moderne)
+#   tier 2 : 0.3 W (Ethernet ou WiFi 6 court-portee)
+# Edge -> cloud (hfl-edge-cloud-bw-mbps) reste volontairement plus lent et
+# plus instable que client -> edge pour modeliser le backbone WAN partage
+# entre tous les edges.
+hfl-edge-cloud-bw-mbps = 5.0
+hfl-edge-cloud-rtt-s = 0.5
+hfl-edge-cloud-jitter-s = 1.0
+hfl-edge-cloud-deadline-s = 0.0
+
+# Batterie: les clients strong (tier=2) n'ont pas de limite batterie.
+# Les clients weak/medium gardent une batterie limitee.
+befl-battery-j = 5000.0
+befl-unlimited-tier = 2
+befl-death-threshold = 0.05
+# BEFL Lyapunov : trade-off convergence vs energie (Liu et al. 2022).
+# Critere de selection : V*utilite > Q*E*tau
+#   - Grand V  -> priorite a la convergence (rares drops Lyapunov)
+#   - Petit V  -> priorite a l'energie (drops frequents pour proteger la batterie)
+# Avec utilite=1.0 et E ~ 5J/epoch, tau=2 : V=100 tolere une queue Q jusqu'a ~10J.
+befl-V = 100.0
+# Seuil de raccourcissement de l'horizon Lyapunov a l'approche de l'early-stopping.
+# 3 = ES dans <=3 rounds -> on commence a depenser plus de batterie.
+befl-es-horizon-trigger = 3

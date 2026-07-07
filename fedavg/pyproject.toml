@@ -1,0 +1,105 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "fedavg"
+version = "1.0.0"
+description = "FedAvg avec partitionnement IID ou non-IID (Dirichlet) configurable au runtime"
+license = "Apache-2.0"
+dependencies = [
+    "fl_common>=1.0.0",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["fedavg"]
+
+[tool.flwr.app]
+publisher = "local"
+
+[tool.flwr.app.components]
+serverapp = "fedavg.server_app:app"
+clientapp = "fedavg.client_app:app"
+
+[tool.flwr.app.config]
+num-server-rounds = 10
+local-epochs = 2
+learning-rate = 0.01
+batch-size = 32
+num-clients = 10
+partitioning = "noniid"
+dirichlet-alpha = 0.3
+data-heterogeneity = 0
+epochs-heterogeneity = 0
+early-stopping-patience = 0
+early-stopping-min-delta = 0.001
+straggler-sim = 0
+round-deadline-s = 0.0
+# Ratio manuel applique aux deux sens. La quantification/sparsification
+# ci-dessous reduit seulement l'uplink client.
+comm-size-ratio = 1.0
+# Override taille modele POUR LA SIMULATION (en MB). 0 = vraie taille.
+# Mettre p.ex. 10 pour simuler ResNet-18, 100 pour BERT-base.
+# Necessaire pour voir un effet visible de la compression sur l'energie totale
+# (le petit CNN par defaut fait ~0.09 MB, le compute domine la comm 1000x).
+sim-model-mb = 0.0
+energy-compute-tier0-j = 0.020
+energy-compute-tier1-j = 0.010
+energy-compute-tier2-j = 0.005
+energy-comm-wan-tier0-w = 0.2
+energy-comm-wan-tier1-w = 2.0
+energy-comm-wan-tier2-w = 0.8
+energy-comm-lan-tier0-w = 0.4
+energy-comm-lan-tier1-w = 0.5
+energy-comm-lan-tier2-w = 0.3
+energy-edge-cloud-power-w = 5.0
+# Momentum SGD. Aligne sur 0.0 (theorie-correcte SGD vanilla) pour permettre
+# une comparaison FAIRE entre tous les algos -- en particulier FedNova et
+# SCAFFOLD qui exigent momentum=0. Mettre 0.9 si tu veux plus de vitesse de
+# convergence mais en sachant que la comparaison croisee devient apple-to-orange.
+momentum = 0.0
+# Seed reproducibilite. -1 = pas de seeding (defaut). >=0 = runs identiques.
+seed = -1
+# Seed des partitions donnees, separe du seed runtime.
+data-seed = 42
+# Fraction de clients echantillonnes par round (audit V7).
+# 1.0 = full participation (cross-silo). < 1.0 = partial participation
+# (cross-device). Utile pour comparer FedAvg vs FedEve dans le regime
+# cible par le papier FedEve (partial participation -> period drift).
+fraction-train = 1.0
+# CORRECTIF audit V10 : modele actif (Net=51k ou BigNet=734k params).
+# Pour comparaison equitable avec CFL, basculer en "bignet".
+model-name = "net"
+
+# AUDIT V14 : compression OPTIONNELLE des updates uploades.
+#   compression-quantization-bits : 32 (off, default) | 16 | 8 | 4
+#     Quantification symetrique uniforme par tensor.
+#   compression-sparsity-ratio    : 0.0 (off, default) | 0.5 | 0.9
+#     Sparsification magnitude-based (top-k pruning).
+#   Les 2 sont composables : ratio uplink = (bits/32) * (1-sparsity).
+#   Effet : reduit les bytes uplink + energie comm, peut degrader accuracy.
+#   Non applique a SCAFFOLD (control variates sensibles).
+compression-quantization-bits = 32
+compression-sparsity-ratio = 0.0
+
+
+#######################################################################
+# CONFIGURATION MIGRATION NOTICE:
+#
+# What was previously called "federation config" for SuperLink
+# connections in pyproject.toml has been renamed and moved.
+#
+# These settings are now **SuperLink connection configuration**
+# and are defined in the Flower configuration file.
+#
+# The entries below are commented out intentionally and are kept
+# only as a migration reference.
+#
+# Docs: https://flower.ai/docs/framework/ref-flower-configuration.html
+#######################################################################
+
+# [tool.flwr.federations]
+# default = "local-sim"
+
+# [tool.flwr.federations.local-sim]
+# options.num-supernodes = 10

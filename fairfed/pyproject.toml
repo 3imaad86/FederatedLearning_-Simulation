@@ -1,0 +1,128 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "fairfed"
+version = "1.0.0"
+description = "FairFed (Ezzeldin et al. 2023, adapte) : reponderation vers le consensus"
+license = "Apache-2.0"
+dependencies = [
+    "fl_common>=1.0.0",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["fairfed"]
+
+[tool.flwr.app]
+publisher = "local"
+
+[tool.flwr.app.components]
+serverapp = "fairfed.server_app:app"
+clientapp = "fairfed.client_app:app"
+
+[tool.flwr.app.config]
+num-server-rounds = 10
+local-epochs = 2
+learning-rate = 0.01
+batch-size = 32
+num-clients = 10
+partitioning = "noniid"
+dirichlet-alpha = 0.3
+data-heterogeneity = 0
+epochs-heterogeneity = 0
+early-stopping-patience = 0
+early-stopping-min-delta = 0.001
+# CORRECTIF audit V19 : alignement complet avec les 9 autres algos du repo.
+# Ces cles etaient absentes du pyproject (restauration vieille sauvegarde
+# pre-audit V10/V14/V18). Sans elles, --run-config <cle>=... echoue sous
+# Flower strict. Defaults conformes aux autres algos.
+#
+# NB : `hardware-heterogeneity` n'est PAS declare ici, comme dans tous les
+# autres algos non-CFL. Le helper `read_common_config` utilise un fallback
+# vers `epochs-heterogeneity` pour cette cle (cf. fl_common audit V11).
+# Comportement strictement comparable avec FedAvg/SCAFFOLD/etc.
+#
+# Stragglers : laisses pour compatibilite de signature run-config, mais ce
+# client n'implemente PAS la simulation (cf. client_app.py).
+straggler-sim = 0
+round-deadline-s = 0.0
+# Ratio manuel applique aux deux sens; la compression ci-dessous reduit
+# seulement l'uplink client.
+comm-size-ratio = 1.0
+compression-quantization-bits = 32
+compression-sparsity-ratio = 0.0
+# Override taille modele POUR LA SIMULATION (en MB). 0 = vraie taille.
+sim-model-mb = 0.0
+# CORRECTIF audit V19 : valeurs energy compute alignees sur FedAvg/SCAFFOLD/etc.
+# La vieille sauvegarde avait tier0=0.004 et tier2=0.018 (INVERSE de la convention
+# du repo : tier0=weak hardware = plus de joules par sample, tier2=strong = moins).
+# Inverser revenait a un biais energetique systematique vs les autres algos.
+energy-compute-tier0-j = 0.020
+energy-compute-tier1-j = 0.010
+energy-compute-tier2-j = 0.005
+energy-comm-wan-tier0-w = 0.2
+energy-comm-wan-tier1-w = 2.0
+energy-comm-wan-tier2-w = 0.8
+energy-comm-lan-tier0-w = 0.4
+energy-comm-lan-tier1-w = 0.5
+energy-comm-lan-tier2-w = 0.3
+energy-edge-cloud-power-w = 5.0
+# Momentum SGD aligne sur 0.0 (theorie-correcte vanilla SGD) pour comparer
+# fairement avec FedNova / SCAFFOLD qui exigent momentum=0.
+momentum = 0.0
+seed = -1
+# Seed du partitionnement des donnees, separe du seed runtime.
+data-seed = 42
+# Fraction de clients echantillonnes par round (McMahan 2017, parametre C).
+# 1.0 = full participation. < 1.0 = partial participation.
+# FairFed suppose un consensus F_global stable -> full participation
+# recommandee pour ne pas biaiser la moyenne ponderee.
+fraction-train = 1.0
+# CORRECTIF audit V10 : modele actif (Net ou BigNet).
+model-name = "net"
+# FairFed : strength de l'ajustement vers le consensus (paper Eq. 6).
+# beta = 0    -> FedAvg (omega_bar^t = omega^(t-1) inchange)
+# beta = 1.0  -> default du papier (la majorite des experiences Adult/COMPAS)
+# Plus grand beta -> ajustement plus agressif vers le consensus.
+fairfed-beta = 1.0
+# CORRECTIF audit fidelite papier :
+#   Le papier Ezzeldin 2023 (Algo 1 + Eq. 6) utilise omega^(t-1)_k directement
+#   dans la mise a jour : omega_bar^t = omega^(t-1) - beta*(Delta - mean).
+#   L'historique est intrinseque a la formule (pas d'EMA explicite separe).
+#
+# ema_alpha = 1.0 (default) -> 100% fidele au papier (PAS de melange explicite).
+# ema_alpha < 1.0           -> EXTENSION : melange supplementaire avec omega^(t-1).
+#                              Stabilise sous Dirichlet tres extreme (alpha < 0.1).
+fairfed-ema-alpha = 1.0
+# CORRECTIF audit fidelite papier :
+#   Le papier ne mentionne PAS de clamp autour de p_k. C'est une extension
+#   defensive que j'avais ajoutee pour eviter les oscillations en regime
+#   non-IID extreme. Desactive par defaut pour rester fidele.
+#
+# max_shift_ratio = 0.0 (default) -> 100% fidele au papier (PAS de clamp).
+# max_shift_ratio > 0             -> EXTENSION : limite la deviation de
+#                                    omega_bar^t a +/- max_shift_ratio * p_k.
+fairfed-max-shift-ratio = 0.0
+
+
+#######################################################################
+# CONFIGURATION MIGRATION NOTICE:
+#
+# What was previously called "federation config" for SuperLink
+# connections in pyproject.toml has been renamed and moved.
+#
+# These settings are now **SuperLink connection configuration**
+# and are defined in the Flower configuration file.
+#
+# The entries below are commented out intentionally and are kept
+# only as a migration reference.
+#
+# Docs: https://flower.ai/docs/framework/ref-flower-configuration.html
+#######################################################################
+
+# [tool.flwr.federations]
+# default = "local-sim"
+
+# [tool.flwr.federations.local-sim]
+# options.num-supernodes = 10

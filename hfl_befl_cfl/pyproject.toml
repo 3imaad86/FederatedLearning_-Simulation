@@ -1,0 +1,133 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "hfl-befl-cfl"
+version = "1.0.0"
+description = "Combo HFL-BEFL + CFL : hierarchique device-edge-cloud + Lyapunov batterie + RL edge assignment + submodels par width (Wang 2023) + Customized aggregation."
+license = "Apache-2.0"
+dependencies = [
+    "fl_common>=1.0.0",
+    "cfl>=1.0.0",
+    "hfl-befl>=1.0.0",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["hfl_befl_cfl"]
+
+[tool.hatch.build.targets.wheel.force-include]
+"../cfl/cfl" = "cfl"
+"../hfl_befl/hfl_befl" = "hfl_befl"
+"../fl_common/fl_common" = "fl_common"
+
+[tool.flwr.app]
+publisher = "local"
+
+[tool.flwr.app.components]
+serverapp = "hfl_befl_cfl.server_app:app"
+clientapp = "hfl_befl_cfl.client_app:app"
+
+[tool.flwr.app.config]
+num-server-rounds = 30
+local-epochs = 2
+learning-rate = 0.01
+batch-size = 32
+num-clients = 10
+partitioning = "noniid"
+dirichlet-alpha = 0.3
+data-heterogeneity = 0
+# IMPORTANT : pour distribuer weak/medium/strong dans HFL-BEFL et permettre
+# a CFL de differencier les tiers (sans cela tous les clients = tier 1).
+epochs-heterogeneity = 1
+early-stopping-patience = 0
+early-stopping-min-delta = 0.001
+straggler-sim = 0
+round-deadline-s = 0.0
+# FedStrag : DESACTIVE par defaut. La combinaison FedStrag x CFL est mal
+# definie (un client late renvoie un submodel de N rounds avant, a un
+# width potentiellement different du round courant). La strategy refuse la
+# configuration si fedstrag-enabled=1.
+fedstrag-enabled = 0
+fedstrag-alpha = 1.0
+fedstrag-min-weight = 0.05
+fedstrag-max-staleness = 0
+comm-size-ratio = 1.0
+# Compression uplink par tier hardware pour HFL-BEFL-CFL.
+# Le downlink edge->client reste au ratio manuel `comm-size-ratio`; ces
+# valeurs ne s'appliquent qu'aux updates envoyees par les clients vers l'edge.
+# CORRECTIF audit V27 : la sparsification a ete RETIREE car elle degradait
+# significativement les performances (top-k magnitude masking detruit le
+# signal des poids critiques au niveau edge). On garde uniquement la
+# quantification per-tier, qui reduit les bytes sans le bruit destructeur
+# du masque sparse.
+# Configuration par defaut :
+#   tier 0 weak  : quantification agressive 8 bits
+#   tier 1 medium: quantification moderee 16 bits
+#   tier 2 strong: pas de compression (fp32)
+tier0-compression-quantization-bits = 8
+tier1-compression-quantization-bits = 16
+tier2-compression-quantization-bits = 32
+# Fallback global si une cle tierX-* est retiree.
+compression-quantization-bits = 32
+# CORRECTIF audit V27 : sparsity globale forcee a 0.0, le code force aussi
+# sparsity=0.0 dans `tier_compression_config` pour ne JAMAIS appliquer de
+# top-k masking sur les updates HFL-BEFL-CFL. Ne pas modifier ; les flags
+# sparsity per-tier ont ete supprimes du parsing pour eviter qu'un user
+# reactive accidentellement la sparsification.
+compression-sparsity-ratio = 0.0
+sim-model-mb = 0.0
+energy-compute-tier0-j = 0.020
+energy-compute-tier1-j = 0.010
+energy-compute-tier2-j = 0.005
+energy-comm-wan-tier0-w = 0.2
+energy-comm-wan-tier1-w = 2.0
+energy-comm-wan-tier2-w = 0.8
+energy-comm-lan-tier0-w = 0.4
+energy-comm-lan-tier1-w = 0.5
+energy-comm-lan-tier2-w = 0.3
+energy-edge-cloud-power-w = 5.0
+momentum = 0.0
+seed = -1
+# Seed des partitions donnees, separe du seed runtime.
+data-seed = 42
+fraction-train = 1.0
+# CFL exerce reellement la personalisation seulement si le parent est gros.
+# BigNet (~734k params) permet aux tier 0 de prendre w=0.25 sans perte abusive.
+model-name = "bignet"
+
+# ====================================================================
+# HFL : architecture hierarchique device-edge-cloud
+# ====================================================================
+hfl-num-edges = 3
+hfl-local-steps = 3
+hfl-rl-edge-assignment = 0
+hfl-rl-epsilon = 0.2
+hfl-rl-lr = 0.01
+hfl-edge-cloud-ratio = 1.0
+hfl-edge-cloud-bw-mbps = 5.0
+hfl-edge-cloud-rtt-s = 0.5
+hfl-edge-cloud-jitter-s = 1.0
+hfl-edge-cloud-deadline-s = 0.0
+
+# ====================================================================
+# BEFL : Lyapunov queue + budget batterie (Liu et al. 2022)
+# ====================================================================
+befl-battery-j = 5000.0
+befl-unlimited-tier = 2
+befl-death-threshold = 0.05
+befl-V = 100.0
+befl-es-horizon-trigger = 3
+
+# ====================================================================
+# CFL : submodels par width + accuracy predictor (Wang et al. 2023)
+# ====================================================================
+cfl-search-times = 10
+cfl-predictor-lr = 0.01
+cfl-predictor-hidden = 32
+cfl-candidate-widths = "0.25,0.5,0.75,1.0"
+
+
+#######################################################################
+# CONFIGURATION MIGRATION NOTICE: voir hfl_befl/pyproject.toml.
+#######################################################################

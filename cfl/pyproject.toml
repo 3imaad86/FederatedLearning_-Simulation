@@ -1,0 +1,119 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "cfl"
+version = "1.0.0"
+description = "CFL (Wang et al. 2023) : Customized FL avec submodels par width + accuracy predictor + heterogeneite hardware."
+license = "Apache-2.0"
+dependencies = [
+    "fl_common>=1.0.0",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["cfl"]
+
+[tool.flwr.app]
+publisher = "local"
+
+[tool.flwr.app.components]
+serverapp = "cfl.server_app:app"
+clientapp = "cfl.client_app:app"
+
+[tool.flwr.app.config]
+num-server-rounds = 10
+local-epochs = 2
+learning-rate = 0.01
+batch-size = 32
+num-clients = 10
+partitioning = "noniid"
+dirichlet-alpha = 0.3
+data-heterogeneity = 0
+# CFL a besoin de tiers hardware differencies pour que les budgets de latence
+# weak/medium/strong modifient les widths. On garde toutefois les epochs locaux
+# homogenes pour ne pas melanger personnalisation CFL et biais FedNova/tau_i.
+hardware-heterogeneity = 1
+epochs-heterogeneity = 0
+early-stopping-patience = 0
+early-stopping-min-delta = 0.001
+# CFL ne simule pas les stragglers cote client. Les widths reduits jouent
+# le role de "compute budget" (Sec III.B 1 du papier).
+comm-size-ratio = 1.0
+compression-quantization-bits = 32
+compression-sparsity-ratio = 0.0
+sim-model-mb = 0.0
+energy-compute-tier0-j = 0.020
+energy-compute-tier1-j = 0.010
+energy-compute-tier2-j = 0.005
+energy-comm-wan-tier0-w = 0.2
+energy-comm-wan-tier1-w = 2.0
+energy-comm-wan-tier2-w = 0.8
+energy-comm-lan-tier0-w = 0.4
+energy-comm-lan-tier1-w = 0.5
+energy-comm-lan-tier2-w = 0.3
+energy-edge-cloud-power-w = 5.0
+# Momentum SGD aligne sur 0.0 (theorie-correcte vanilla SGD pour la
+# personalization). Le papier (Sec IV.A) utilise SGD vanilla.
+momentum = 0.0
+seed = -1
+# Seed des partitions donnees. Separe du seed runtime: seed=-1 peut garder
+# init/shuffle non determines sans changer le split statistique.
+data-seed = 42
+fraction-train = 1.0
+
+# CORRECTIF audit V10 : CFL utilise BigNet (~734k params) comme parent.
+# Avec Net (51k), tous les tiers absorbent le full model et CFL = no-op.
+# Avec BigNet, w=0.25 (~50k) convient tier 0, w=1.0 (~734k) reserve tier 2
+# -> CFL exerce reellement la personnalisation.
+model-name = "bignet"
+
+# ====================================================================
+# Hyperparametres CFL specifiques (Wang et al. 2023)
+# ====================================================================
+
+# Nombre d'iterations S de l'Algo 1 (Submodels Selection). Plus grand =
+# meilleure exploration de l'espace des widths via le predictor, mais
+# cout serveur croissant. Le papier propose S=10-20 typiquement.
+cfl-search-times = 10
+
+# Learning rate Adam pour l'accuracy predictor (Algo 2). Le predictor est
+# un MLP 4 couches entraine 1 epoch par round. lr=0.01 = convergence rapide.
+cfl-predictor-lr = 0.01
+
+# Taille des couches cachees du predictor. Le papier (Sec III.B 1) parle
+# d'un "simple linear classifier" -- 32 est largement suffisant.
+cfl-predictor-hidden = 32
+
+# Espace de recherche des width_ratio (= ratios de canaux par layer).
+# 0.25 = quart du parent (tres petit, pour tier 0 weak).
+# 0.5  = moitie (tier 1 medium).
+# 0.75 = trois-quarts (tier 1+ ou tier 2 sous contrainte).
+# 1.0  = full model (tier 2 strong).
+# Format string TOML : "0.25,0.5,0.75,1.0" (parse cote server_app).
+cfl-candidate-widths = "0.25,0.5,0.75,1.0"
+
+# NOTE V11 : `cfl-quality-per-pid` retire (heterogeneite des donnees
+# supprimee pour comparaison equitable avec FedAvg).
+
+
+#######################################################################
+# CONFIGURATION MIGRATION NOTICE:
+#
+# What was previously called "federation config" for SuperLink
+# connections in pyproject.toml has been renamed and moved.
+#
+# These settings are now **SuperLink connection configuration**
+# and are defined in the Flower configuration file.
+#
+# The entries below are commented out intentionally and are kept
+# only as a migration reference.
+#
+# Docs: https://flower.ai/docs/framework/ref-flower-configuration.html
+#######################################################################
+
+# [tool.flwr.federations]
+# default = "local-sim"
+
+# [tool.flwr.federations.local-sim]
+# options.num-supernodes = 10

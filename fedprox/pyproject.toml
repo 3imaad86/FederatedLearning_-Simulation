@@ -1,0 +1,94 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "fedprox"
+version = "1.0.0"
+description = "FedProx (terme proximal) avec partitionnement IID ou non-IID (Dirichlet) configurable"
+license = "Apache-2.0"
+dependencies = [
+    "fl_common>=1.0.0",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["fedprox"]
+
+[tool.flwr.app]
+publisher = "local"
+
+[tool.flwr.app.components]
+serverapp = "fedprox.server_app:app"
+clientapp = "fedprox.client_app:app"
+
+[tool.flwr.app.config]
+num-server-rounds = 10
+local-epochs = 2
+learning-rate = 0.01
+batch-size = 32
+num-clients = 10
+mu = 0.01
+partitioning = "noniid"
+dirichlet-alpha = 0.3
+data-heterogeneity = 0
+epochs-heterogeneity = 0
+early-stopping-patience = 0
+early-stopping-min-delta = 0.001
+# FedProx ne simule pas les stragglers (cf. client_app.py). Les options
+# `straggler-sim` et `round-deadline-s` sont volontairement omises.
+# Ratio manuel applique aux deux sens. La quantification/sparsification
+# ci-dessous reduit seulement l'uplink client.
+comm-size-ratio = 1.0
+compression-quantization-bits = 32
+compression-sparsity-ratio = 0.0
+# Override taille modele POUR LA SIMULATION (en MB). 0 = vraie taille.
+sim-model-mb = 0.0
+energy-compute-tier0-j = 0.020
+energy-compute-tier1-j = 0.010
+energy-compute-tier2-j = 0.005
+energy-comm-wan-tier0-w = 0.2
+energy-comm-wan-tier1-w = 2.0
+energy-comm-wan-tier2-w = 0.8
+energy-comm-lan-tier0-w = 0.4
+energy-comm-lan-tier1-w = 0.5
+energy-comm-lan-tier2-w = 0.3
+energy-edge-cloud-power-w = 5.0
+# Momentum SGD. Aligne sur 0.0 (theorie-correcte SGD vanilla) pour permettre
+# une comparaison FAIRE entre tous les algos. Mettre 0.9 si tu veux plus de
+# vitesse de convergence mais en sachant que la comparaison croisee
+# (FedNova / SCAFFOLD qui forcent 0.0) devient apple-to-orange.
+momentum = 0.0
+# Seed reproducibilite. -1 = pas de seeding (defaut). >=0 = runs identiques.
+seed = -1
+# Seed des partitions donnees, separe du seed runtime.
+data-seed = 42
+# Fraction de clients echantillonnes par round (McMahan 2017, parametre C).
+# 1.0 = full participation (cross-silo, hypothese theorique FedProx).
+# < 1.0 = partial participation (cross-device). FedProx tolere theoriquement
+# la participation partielle (Li et al. 2018 Sec. 4) mais la formule de
+# convergence suppose un sampling sans biais ; mettre < 1.0 reste experimental.
+fraction-train = 1.0
+# CORRECTIF audit V10 : modele actif (Net ou BigNet).
+model-name = "net"
+
+
+#######################################################################
+# CONFIGURATION MIGRATION NOTICE:
+#
+# What was previously called "federation config" for SuperLink
+# connections in pyproject.toml has been renamed and moved.
+#
+# These settings are now **SuperLink connection configuration**
+# and are defined in the Flower configuration file.
+#
+# The entries below are commented out intentionally and are kept
+# only as a migration reference.
+#
+# Docs: https://flower.ai/docs/framework/ref-flower-configuration.html
+#######################################################################
+
+# [tool.flwr.federations]
+# default = "local-sim"
+
+# [tool.flwr.federations.local-sim]
+# options.num-supernodes = 10
